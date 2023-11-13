@@ -15,5 +15,5 @@
     "depends": ["stock"],
     "application": False,
     "installable": True,
-    "data": ["views/stock_picking_type.xml"],
+    "data": ["views/stock_picking_type.xml", "views/stock_picking.xml"],
 }
