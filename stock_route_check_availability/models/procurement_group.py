@@ -30,7 +30,5 @@ class ProcurementGroup(models.Model):
     def _search_rule(self, route_ids, product_id, warehouse_id, domain):
         disable_dropshiping = self.env.context.get("no_dropship_rule", False)
         if disable_dropshiping:
-            domain = expression.AND(
-                [[("route_id.disable_if_stock_exists", "=", False)], domain]
-            )
+            domain = expression.AND([[("disable_if_stock_exists", "=", False)], domain])
         return super()._search_rule(route_ids, product_id, warehouse_id, domain)

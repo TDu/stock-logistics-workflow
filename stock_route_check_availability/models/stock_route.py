@@ -4,7 +4,13 @@
 from odoo import fields, models
 
 
+class StockRule(models.Model):
+    _inherit = "stock.rule"
+
+    disable_if_stock_exists = fields.Boolean(string="Bypass if stock exists")
+
+
 class Route(models.Model):
     _inherit = "stock.location.route"
 
-    disable_if_stock_exists = fields.Boolean()
+    disable_if_stock_exists = fields.Boolean(string="Bypass if stock exists")

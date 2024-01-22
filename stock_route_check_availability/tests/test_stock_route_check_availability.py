@@ -38,7 +38,7 @@ class TestStockRouteCheckAvailability(SavepointCase):
         Flag is not set, so even with available quantity a purchase order
         is being created.
         """
-        self.dropship_route.disable_if_stock_exists = False
+        self.dropship_route.rule_ids.disable_if_stock_exists = False
         self.env["stock.quant"]._update_available_quantity(
             self.product, self.stock_location, 3
         )
@@ -48,7 +48,7 @@ class TestStockRouteCheckAvailability(SavepointCase):
 
     def test_flag_on_with_available_quantity(self):
         """Check dropship is bypassed when product is available in the stock."""
-        self.dropship_route.disable_if_stock_exists = True
+        self.dropship_route.rule_ids.disable_if_stock_exists = True
         self.env["stock.quant"]._update_available_quantity(
             self.product, self.stock_location, 3
         )
@@ -58,7 +58,7 @@ class TestStockRouteCheckAvailability(SavepointCase):
 
     def test_flag_on_no_available_quantity(self):
         """Check dropship is activated when the product is not available in stock."""
-        self.dropship_route.disable_if_stock_exists = True
+        self.dropship_route.rule_ids.disable_if_stock_exists = True
         self.env["stock.quant"]._update_available_quantity(
             self.product, self.stock_location, 0
         )
