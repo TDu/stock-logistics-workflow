@@ -1,69 +1,67 @@
 from odoo.tests import Form
 from odoo.tests.common import SavepointCase
+from odoo.tools import mute_logger
 
 
-class TestPacking(SavepointCase):
+class TestStockRouteCheckAvailability(SavepointCase):
     @classmethod
     def setUpClass(cls):
-        super(TestPacking, cls).setUpClass()
+        super().setUpClass()
+        cls.partner = cls.env.ref("base.res_partner_4")
         cls.stock_location = cls.env.ref("stock.stock_location_stock")
-        cls.loc_customer = cls.env.ref("stock.stock_location_customers")
-        cls.loc_supplier = cls.env.ref("stock.stock_location_suppliers")
-
-        cls.warehouse = cls.env["stock.warehouse"].search(
-            [("lot_stock_id", "=", cls.stock_location.id)], limit=1
+        cls.product = cls.env["product.product"].create(
+            {"name": "Product 1", "type": "product"}
         )
-        cls.warehouse.delivery_steps = "pick_ship"
+        cls.dropship_route = cls.env.ref("stock_dropshipping.route_drop_shipping")
+        cls.product.route_ids = [(4, cls.dropship_route.id, 0)]
 
-        delivery_pick_rule = cls.warehouse.delivery_route_id.rule_ids.filtered(
-            lambda r: r.location_src_id == cls.stock_location
-        )
-        delivery_pick_rule.group_propagation_option = "fixed"
-
-        cls.productA = cls.env["product.product"].create(
-            {"name": "Product A", "type": "product"}
-        )
-        cls.env["stock.quant"]._update_available_quantity(cls.productA, cls.stock_location, 3)
-
-        # lets create a buy route
-        cls.drop_transfer_type = cls.env["stock.picking.type"].create(
+        cls.supplierinfo = cls.env["product.supplierinfo"].create(
             {
-                "name": "Dropship",
-                "code": "internal",
-                "sequence_code": "DRP",
-                "default_location_dest_id": cls.loc_customer.id,
-                "default_location_src_id": cls.loc_supplier.id,
+                "name": cls.env.ref("base.res_partner_3").id,
+                "product_tmpl_id": cls.product.product_tmpl_id.id,
+                "product_id": cls.product.id,
+                "product_code": "SUPP1",
+                "delay": 1,
             }
         )
-        cls.route = cls.env["stock.location.route"].create(
-            {
-                "name": "Dropship",
-                "product_selectable": True,
-                "rule_ids": [
-                    (0, 0, {
-                        "name": "Vendors -> Customers",
-                        "action": "buy",
-                        "picking_type_id": cls.drop_transfer_type.id,
-                        "location_id": cls.loc_customer.id,
-                        "location_src_id": cls.loc_supplier.id,
-                     }),
-                ],
-            }
-        )
-        # Add the new route to the product
-        cls.productA.route_ids = [(4, cls.route.id, 0)]
-        # OK: check sequence is lower than pick rule
+        sale_form = Form(cls.env["sale.order"])
+        sale_form.partner_id = cls.partner
+        with mute_logger("odoo.tests.common.onchange"):
+            with sale_form.order_line.new() as line:
+                line.product_id = cls.product
+                line.product_uom_qty = 1
+        cls.sale = sale_form.save()
 
-    def test_one(self):
-        deliver_form = Form(self.env["stock.picking"])
-        deliver_form.picking_type_id = self.warehouse.out_type_id
-        with deliver_form.move_ids_without_package.new() as move_line:
-            move_line.product_id = self.productA
-            move_line.product_uom_qty = 1
-        transfer = deliver_form.save()
-        transfer.move_lines.procure_method = "make_to_order"
-        transfer.action_confirm()
-        # Pick has been created
-        # Fixme: there should be no move_orig_ids now that dropship route is used.
-        # But is it ?
-        self.assertTrue(transfer.move_lines.move_orig_ids)
+    def test_flag_off_dropship_normal_behaviour(self):
+        """Check normal dropship behaviour with available stock.
+
+        Flag is not set, so even with available quantity a purchase order
+        is being created.
+        """
+        self.dropship_route.disable_if_stock_exists = False
+        self.env["stock.quant"]._update_available_quantity(
+            self.product, self.stock_location, 3
+        )
+        self.sale.action_confirm()
+        self.assertTrue(self.sale.purchase_order_count == 1)
+        self.assertFalse(self.sale.picking_ids)
+
+    def test_flag_on_with_available_quantity(self):
+        """Check dropship is bypassed when product is available in the stock."""
+        self.dropship_route.disable_if_stock_exists = True
+        self.env["stock.quant"]._update_available_quantity(
+            self.product, self.stock_location, 3
+        )
+        self.sale.action_confirm()
+        self.assertTrue(self.sale.purchase_order_count == 0)
+        self.assertTrue(self.sale.picking_ids)
+
+    def test_flag_on_no_available_quantity(self):
+        """Check dropship is activated when the product is not available in stock."""
+        self.dropship_route.disable_if_stock_exists = True
+        self.env["stock.quant"]._update_available_quantity(
+            self.product, self.stock_location, 0
+        )
+        self.sale.action_confirm()
+        self.assertTrue(self.sale.purchase_order_count == 1)
+        self.assertFalse(self.sale.picking_ids)
