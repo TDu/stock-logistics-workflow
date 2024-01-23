@@ -3,7 +3,7 @@ from odoo.tests.common import SavepointCase
 from odoo.tools import mute_logger
 
 
-class TestStockRouteCheckAvailability(SavepointCase):
+class TestStockRuleBuyCheckStockBefore(SavepointCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
