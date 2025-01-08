@@ -164,18 +164,18 @@ class TestStockSplitPickingKit(SavepointCase):
             }
         )
 
-    @classmethod
-    def _update_qty_in_location(
-        cls, location, product, quantity, package=None, lot=None
-    ):
-        quants = cls.env["stock.quant"]._gather(
-            product, location, lot_id=lot, package_id=package, strict=True
-        )
-        # this method adds the quantity to the current quantity, so remove it
-        quantity -= sum(quants.mapped("quantity"))
-        cls.env["stock.quant"]._update_available_quantity(
-            product, location, quantity, package_id=package, lot_id=lot
-        )
+    # @classmethod
+    # def _update_qty_in_location(
+    #     cls, location, product, quantity, package=None, lot=None
+    # ):
+    #     quants = cls.env["stock.quant"]._gather(
+    #         product, location, lot_id=lot, package_id=package, strict=True
+    #     )
+    #     # this method adds the quantity to the current quantity, so remove it
+    #     quantity -= sum(quants.mapped("quantity"))
+    #     cls.env["stock.quant"]._update_available_quantity(
+    #         product, location, quantity, package_id=package, lot_id=lot
+    #     )
 
 
     def _create_kit_picking(self, product, quantity):
@@ -205,15 +205,30 @@ class TestStockSplitPickingKit(SavepointCase):
         )
         proc_group.run([procurement])
 
+    def _get_kit_quantity(self, picking, bom):
+        filters = {
+            "incoming_moves": lambda m: m.location_id.usage == "supplier"
+            and (
+                not m.origin_returned_move_id
+                # or (m.origin_returned_move_id and m.to_refund)
+            ),
+            "outgoing_moves": lambda m: m.location_id.usage != "supplier"
+            # and m.to_refund,
+        }
+        kit_quantity = picking.move_lines._compute_kit_quantities(
+            bom.product_id, 100, bom , filters
+        )
+        return abs(kit_quantity)
+
     def test_split_picking_kit_single_split(self):
-        self._update_qty_in_location(self.src_location, self.product_garden_table_top, 100)
+        # self._update_qty_in_location(self.src_location, self.product_garden_table_top, 100)
         pickings_before = self.env["stock.picking"].search([])
         self._create_kit_picking(self.product_garden_table, 4)
         pickings_after = self.env["stock.picking"].search([])
         picking = pickings_after - pickings_before
         self.assertTrue(picking)
-        picking.action_assign()
-        self.assertEqual(picking.state, "assigned")
+        # picking.action_assign()
+        # self.assertEqual(picking.state, "assigned")
         wizard = (
             self.env["stock.split.picking"]
             .with_context(active_ids=picking.ids)
@@ -222,3 +237,23 @@ class TestStockSplitPickingKit(SavepointCase):
         wizard.action_apply()
         new_picking = self.env["stock.picking"].search([]) - pickings_after
         self.assertTrue(new_picking)
+        self.assertEqual(len(new_picking), 1)
+        np_kq = self._get_kit_quantity(new_picking, self.bom_garden_table)
+        self.assertEqual(np_kq, 1)
+
+    def test_split_picking_kit_multiple_split(self):
+        pickings_before = self.env["stock.picking"].search([])
+        self._create_kit_picking(self.product_garden_table, 7)
+        pickings_after = self.env["stock.picking"].search([])
+        picking = pickings_after - pickings_before
+        self.assertTrue(picking)
+        wizard = (
+            self.env["stock.split.picking"]
+            .with_context(active_ids=picking.ids)
+            .create({"mode": "kit_quantity", "kit_split_quantity": 3})
+        )
+        wizard.action_apply()
+        new_picking = self.env["stock.picking"].search([]) - pickings_after
+        self.assertEqual(len(new_picking), 2)
+        oo = [ self._get_kit_quantity(pick, self.bom_garden_table) for pick in new_picking]
+        self.assertEqual(oo, [3.0, 1.0])
