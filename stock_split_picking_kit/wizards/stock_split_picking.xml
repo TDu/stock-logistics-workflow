@@ -6,10 +6,10 @@
         <field name="inherit_id" ref="stock_split_picking.view_stock_split_picking" />
         <field name="arch" type="xml">
             <field name="move_ids" position="after">
-              <field 
-                name="kit_split_quantity"
-                attrs="{'invisible': [('mode', '!=', 'kit_quantity')], 'required': [('mode', '=', 'kit_quantity')]}"
-              />
+              <field
+                    name="kit_split_quantity"
+                    attrs="{'invisible': [('mode', '!=', 'kit_quantity')], 'required': [('mode', '=', 'kit_quantity')]}"
+                />
             </field>
         </field>
     </record>

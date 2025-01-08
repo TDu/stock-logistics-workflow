@@ -9,7 +9,5 @@
     "license": "AGPL-3",
     "website": "https://github.com/OCA/stock-logistics-workflow",
     "depends": ["stock_split_picking", "mrp"],
-    "data": [
-        "wizards/stock_split_picking.xml"
-    ],
+    "data": ["wizards/stock_split_picking.xml"],
 }

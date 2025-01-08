@@ -2,8 +2,8 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from odoo import fields, models
-from odoo.tools import groupby
 from odoo.exceptions import UserError
+from odoo.tools import groupby
 
 
 class StockSplitPicking(models.TransientModel):
@@ -11,7 +11,7 @@ class StockSplitPicking(models.TransientModel):
 
     mode = fields.Selection(
         selection_add=[("kit_quantity", "Quantity of kits")],
-        ondelete={"kit_quantity": "set default"}
+        ondelete={"kit_quantity": "set default"},
     )
     kit_split_quantity = fields.Integer()
 
@@ -37,36 +37,53 @@ class StockSplitPicking(models.TransientModel):
             # and m.to_refund,
         }
         all_pickings = picking
-        current_picking = picking
         new_picking = self.env["stock.picking"]
         used_slots = 0
-        for bom, bom_move_list in groupby(current_picking.move_lines, key=lambda move: move.bom_line_id.bom_id):
+        max_slots = self.kit_split_quantity
+        for bom, bom_move_list in groupby(
+            picking.move_lines, key=lambda move: move.bom_line_id.bom_id
+        ):
             if bom.type != "phantom":
                 raise UserError("Should it not be allowed if not a full kit picking ?")
             moves = self.env["stock.move"].browse([move.id for move in bom_move_list])
-            order_qty = max(moves.mapped("product_qty")) # Just give the maximum possible
             kit_quantity = moves._compute_kit_quantities(
-                bom.product_id, order_qty, bom , filters
+                bom.product_id,
+                max(moves.mapped("product_qty")),  # Just use max possible
+                bom,
+                filters,
             )
             kit_quantity = abs(kit_quantity)
 
-            if used_slots + kit_quantity > self.kit_split_quantity:
-                # Split the picking for a smaller number of kits
-                # It means splitting some moves quantity
+            while kit_quantity > 0:
+                if used_slots == max_slots:
+                    # Current picking is full, create a new one
+                    new_picking = picking._create_split_backorder()
+                    all_pickings |= new_picking
+                    used_slots = 0
 
-                kit_to_split = kit_quantity - self.kit_split_quantity - used_slots
-                nb_of_splits = int(kit_to_split / self.kit_split_quantity) + 1
-                for n in range(nb_of_splits):
+                available_slots = max_slots - used_slots
+                kit_to_split = (
+                    available_slots if kit_quantity // available_slots else kit_quantity
+                )
+                # if not new_picking:
+                # Using slots in the original picking
+                # pass
+                # else:
+                if new_picking:
+                    # Using slots in a new picking
                     new_moves = self.env["stock.move"]
                     for move in moves:
-                        new_move_vals = move._split(move.bom_line_id.product_qty * kit_to_split)
+                        new_move_vals = move._split(
+                            move.bom_line_id.product_qty * kit_to_split
+                        )
                         if new_move_vals:
                             new_moves |= self.env["stock.move"].create(new_move_vals)
-                    new_picking = picking._create_split_backorder()
                     new_moves.write({"picking_id": new_picking.id})
-                    new_moves.mapped("move_line_ids").write({"picking_id": new_picking.id})
-                    all_pickings |= new_picking
-                # FIXME Properly split the reminder !
-            else:
-                used_slots += kit_quantity
+                    new_moves.mapped("move_line_ids").write(
+                        {"picking_id": new_picking.id}
+                    )
+
+                used_slots += kit_to_split
+                kit_quantity -= kit_to_split
+
         return all_pickings

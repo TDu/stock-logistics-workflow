@@ -3,7 +3,6 @@
 
 # from odoo.exceptions import UserError
 from odoo import fields
-from odoo.tests import Form
 from odoo.tests.common import SavepointCase
 
 
@@ -177,15 +176,12 @@ class TestStockSplitPickingKit(SavepointCase):
     #         product, location, quantity, package_id=package, lot_id=lot
     #     )
 
-
     def _create_kit_picking(self, product, quantity):
         proc_group = self.env["procurement.group"]
         uom = product.uom_id
         proc_qty, proc_uom = uom._adjust_uom_quantities(quantity, uom)
         today = fields.Date.today()
-        proc_group = self.env["procurement.group"].create(
-            {}
-        )
+        proc_group = self.env["procurement.group"].create({})
         values = {
             "group_id": proc_group,
             "date_planned": today,
@@ -216,7 +212,7 @@ class TestStockSplitPickingKit(SavepointCase):
             # and m.to_refund,
         }
         kit_quantity = picking.move_lines._compute_kit_quantities(
-            bom.product_id, 100, bom , filters
+            bom.product_id, 100, bom, filters
         )
         return abs(kit_quantity)
 
@@ -255,5 +251,7 @@ class TestStockSplitPickingKit(SavepointCase):
         wizard.action_apply()
         new_picking = self.env["stock.picking"].search([]) - pickings_after
         self.assertEqual(len(new_picking), 2)
-        oo = [ self._get_kit_quantity(pick, self.bom_garden_table) for pick in new_picking]
-        self.assertEqual(oo, [3.0, 1.0])
+        oo = [
+            self._get_kit_quantity(pick, self.bom_garden_table) for pick in new_picking
+        ]
+        self.assertEqual(set(oo), {3.0, 1.0})
