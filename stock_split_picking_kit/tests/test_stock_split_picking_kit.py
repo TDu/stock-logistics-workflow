@@ -2,7 +2,7 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl.html)
 
 from odoo import fields
-from odoo.tests.common import SavepointCase
+from odoo.tests.common import Form, SavepointCase
 
 
 class TestStockSplitPickingKit(SavepointCase):
@@ -261,5 +261,43 @@ class TestStockSplitPickingKit(SavepointCase):
             self._get_kit_quantity(pick, self.bom_garden_table) for pick in new_picking
         ]
         self.assertEqual(set(oo), {3.0, 1.0})
+
+
+
+    @classmethod
+    def _create_picking(cls, picking_type=None, lines=None, confirm=True, **kw):
+        picking_form = Form(cls.env["stock.picking"])
+        picking_form.picking_type_id = picking_type or cls.picking_type
+        picking_form.partner_id = cls.partner
+        for product, qty in lines:
+            with picking_form.move_ids_without_package.new() as move:
+                move.product_id = product
+                move.product_uom_qty = qty
+        for k, v in kw.items():
+            setattr(picking_form, k, v)
+        picking = picking_form.save()
+        if confirm:
+            picking.action_confirm()
+        return picking
+
+
+    def test_split_picking_kit_with_non_kit(self):
+        pt = self.env.ref("stock.picking_type_out")
+        picking = self._create_picking(
+            pt,
+            [(self.product_garden_table_top, 3),(self.product_garden_table_leg, 21)]
+        )
+        # pickings_after = self.env["stock.picking"].search([])
+        # picking = pickings_after - pickings_before
+        # self.assertTrue(picking)
+        wizard = (
+            self.env["stock.split.picking"]
+            .with_context(active_ids=picking.ids)
+            .create({"mode": "kit_quantity", "kit_split_quantity": 7})
+        )
+        res = wizard.action_apply()
+        __import__("pdb").set_trace()
+        # new_picking = self.env["stock.picking"].search([]) - pickings_after
+
 
     # TODO: could add test for multiple kits in the transfer

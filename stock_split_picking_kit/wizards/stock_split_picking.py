@@ -33,6 +33,36 @@ class StockSplitPicking(models.TransientModel):
         for bom, bom_move_list in groupby(
             picking.move_lines, key=lambda move: move.bom_line_id.bom_id
         ):
+
+            moves = self.env["stock.move"].browse([move.id for move in bom_move_list])
+            if bom.type != "phantom":
+                new_moves = self.env["stock.move"]
+                while used_slots < max_slots and moves:
+                    available_slots = max_slots - used_slots
+                    move = fields.first(moves)
+                    quantity = move.product_qty
+                    if available_slots >= quantity:
+                        moves = moves - move
+                        used_slots += quantity
+                    else:
+                        new_move_vals = move._split(quantity - available_slots)
+                        moves = moves - move
+                        if new_move_vals:
+                            new_moves |= self.env["stock.move"].create(new_move_vals)
+                            # It is full
+                            new_picking = picking._create_split_backorder()
+                            new_moves.write({"picking_id": new_picking.id})
+                            new_moves.mapped("move_line_ids").write(
+                                {"picking_id": new_picking.id}
+                            )
+                            # All remaining move needs to be move
+                            moves.write({"picking_id": new_picking.id})
+                            moves.mapped("move_line_ids").write(
+                                {"picking_id": new_picking.id}
+                            )
+                        return new_picking
+
+
             if bom.type != "phantom":
                 raise UserError("Only have kits in the transfer ?")
             moves = self.env["stock.move"].browse([move.id for move in bom_move_list])
