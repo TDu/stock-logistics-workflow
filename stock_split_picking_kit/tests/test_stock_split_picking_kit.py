@@ -280,24 +280,44 @@ class TestStockSplitPickingKit(SavepointCase):
             picking.action_confirm()
         return picking
 
+    def _get_picking_ids_from_action(self, res, expected_quantity):
+        """Return the pickings found in the action returned by the wizard."""
+        id_list = res["domain"][0][2]
+        self.assertEqual(len(id_list), expected_quantity)
+        return self.env["stock.picking"].browse(id_list)
 
-    def test_split_picking_kit_with_non_kit(self):
-        pt = self.env.ref("stock.picking_type_out")
+    def test_split_picking_kit_with_no_kit(self):
+        """Check split picking only has non kit product."""
         picking = self._create_picking(
-            pt,
-            [(self.product_garden_table_top, 3),(self.product_garden_table_leg, 21)]
+            self.env.ref("stock.picking_type_out"),
+            [
+                (self.product_garden_table_top, 3),
+                (self.product_garden_table_leg, 21)
+            ]
         )
-        # pickings_after = self.env["stock.picking"].search([])
-        # picking = pickings_after - pickings_before
-        # self.assertTrue(picking)
         wizard = (
             self.env["stock.split.picking"]
             .with_context(active_ids=picking.ids)
             .create({"mode": "kit_quantity", "kit_split_quantity": 7})
         )
         res = wizard.action_apply()
-        __import__("pdb").set_trace()
-        # new_picking = self.env["stock.picking"].search([]) - pickings_after
+        new_picking = self._get_picking_ids_from_action(res, 1)
+        self.assertEqual(len(new_picking.move_lines), 1)
 
-
-    # TODO: could add test for multiple kits in the transfer
+    def test_split_picking_with_product_and_kit(self):
+        picking = self._create_picking(
+            self.env.ref("stock.picking_type_out"),
+            [
+                (self.product_garden_table_top, 3),
+                (self.product_garden_table_leg, 21),
+                (self.product_garden_table, 4),
+            ]
+        )
+        wizard = (
+            self.env["stock.split.picking"]
+            .with_context(active_ids=picking.ids)
+            .create({"mode": "kit_quantity", "kit_split_quantity": 6})
+        )
+        res = wizard.action_apply()
+        new_picking = self._get_picking_ids_from_action(res, 1)
+        self.assertEqual(len(new_picking.move_lines), 3)
