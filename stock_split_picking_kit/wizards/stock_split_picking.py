@@ -26,7 +26,7 @@ class StockSplitPicking(models.TransientModel):
             "incoming_moves": lambda m: m.location_id.usage == "supplier",
             "outgoing_moves": lambda m: m.location_id.usage != "supplier",
         }
-        # all_pickings = picking
+        moves_to_backorder = self.env["stock.move"]
         new_picking = self.env["stock.picking"]
         used_slots = 0
         max_slots = self.kit_split_quantity
@@ -34,45 +34,28 @@ class StockSplitPicking(models.TransientModel):
             picking.move_lines, key=lambda move: move.bom_line_id.bom_id
         ):
 
-            if used_slots == max_slots and not new_picking:
-                # Current picking is full, create a new one
-                new_picking = picking._create_split_backorder()
             moves = self.env["stock.move"].browse([move.id for move in bom_move_list])
-            if new_picking:
-                # Limit already exceeded, move to new picking
-                moves.write({"picking_id": new_picking.id})
-                moves.mapped("move_line_ids").write({"picking_id": new_picking.id})
+            if used_slots >= max_slots:
+                # Current picking is full, everything else is moved to a new picking
+                moves_to_backorder |= moves
                 continue
 
+            available_slots = max_slots - used_slots
             if bom.type != "phantom":
-                new_moves = self.env["stock.move"]
-                while used_slots < max_slots and moves:
-                    available_slots = max_slots - used_slots
-                    move = fields.first(moves)
+                # Non kit moves, their quantity is the number of slots used
+                for move in moves:
                     quantity = move.product_qty
-                    if available_slots >= quantity:
-                        moves = moves - move
+                    if available_slots >= move.product_qty:
                         used_slots += quantity
+                        available_slots = max_slots - used_slots
+                    elif available_slots <= 0:
+                        moves_to_backorder |= move
                     else:
                         new_move_vals = move._split(quantity - available_slots)
-                        moves = moves - move
-                        if new_move_vals:
-                            new_moves |= self.env["stock.move"].create(new_move_vals)
-                            # It is full
-                            new_picking = picking._create_split_backorder()
-                            new_moves.write({"picking_id": new_picking.id})
-                            new_moves.mapped("move_line_ids").write(
-                                {"picking_id": new_picking.id}
-                            )
-                            # All remaining move needs to be move
-                            moves.write({"picking_id": new_picking.id})
-                            moves.mapped("move_line_ids").write(
-                                {"picking_id": new_picking.id}
-                            )
-                            used_slots = max_slots
-
+                        moves_to_backorder |= self.env["stock.move"].create(new_move_vals)
+                        used_slots = max_slots
             else:
-
+                # Kit moves
                 kit_quantity = moves._compute_kit_quantities(
                     bom.product_id,
                     max(moves.mapped("product_qty")),  # Just use max possible
@@ -80,25 +63,22 @@ class StockSplitPicking(models.TransientModel):
                     filters,
                 )
                 kit_quantity = abs(kit_quantity)
-
-                available_slots = max_slots - used_slots
-                kit_to_split = (
-                    available_slots if kit_quantity // available_slots else kit_quantity
-                )
-                if new_picking:
-                    new_moves = self.env["stock.move"]
+                if kit_quantity <= available_slots:
+                    used_slots += kit_quantity
+                else:
+                    kit_to_split = kit_quantity - available_slots
+                    new_move_vals = []
                     for move in moves:
-                        new_move_vals = move._split(
+                        new_move_vals += move._split(
                             move.bom_line_id.product_qty * kit_to_split
                         )
-                        if new_move_vals:
-                            new_moves |= self.env["stock.move"].create(new_move_vals)
-                    new_moves.write({"picking_id": new_picking.id})
-                    new_moves.mapped("move_line_ids").write(
-                        {"picking_id": new_picking.id}
-                    )
-
-                used_slots += kit_to_split
-                kit_quantity -= kit_to_split
+                    moves_to_backorder |= self.env["stock.move"].create(new_move_vals)
+                    used_slots = max_slots
+        if moves_to_backorder:
+            new_picking = picking._create_split_backorder()
+            moves_to_backorder.write({"picking_id": new_picking.id})
+            moves_to_backorder.mapped("move_line_ids").write(
+                {"picking_id": new_picking.id}
+            )
 
         return new_picking
